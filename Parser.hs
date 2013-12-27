@@ -4,6 +4,7 @@ import System.Environment
 import Control.Monad
 import Utils
 import Data.Maybe
+import qualified Data.Bool as B
 import qualified Data.Map as M
 
 data LispVal = LSymbol String
@@ -13,6 +14,7 @@ data LispVal = LSymbol String
              | LString String
              | LBool Bool
              | LPrimitive ([LispVal]->LispVal)
+             | LError String
 
 
 
@@ -98,33 +100,47 @@ showVal (LFloat f) = show f
 showVal (LBool True) = "true"
 showVal (LBool False) = "false"
 showVal (LList c) = "(" ++ unwordsList c ++ ")"
+showVal (LError e) = "Error : " ++ e
 
 unwordsList :: [LispVal] -> String
 unwordsList = unwords . map showVal
 
 instance Show LispVal where show = showVal
 
-eval :: Environment -> LispVal -> LispVal
-eval _ v@(LString _) = v
-eval _ v@(LInteger _) = v
-eval _ v@(LBool _) = v
-eval _ v@(LFloat _) = v
-eval _ (LList [LSymbol "quote", v]) = v
-eval env (LList (LSymbol func : args)) = apply env func $ map (eval env) args
+type EnvVal = (Environment, LispVal)
+
+eval :: Environment -> LispVal -> EnvVal
+eval e v@(LString _) = (e,v)
+eval e v@(LInteger _) = (e,v)
+eval e v@(LBool _) = (e,v)
+eval e v@(LFloat _) = (e,v)
+eval e v@(LError _) = (e,v)
+eval e (LList [LSymbol "quote", v]) = (e,v)
+eval e v@(LList []) = (e,v)
+--eval env (LList [LSymbol "def"])
+eval env (LList (LSymbol func : args)) = (env, apply env func $ map (snd . (eval env)) args)
 
 
 apply :: Environment -> String -> [LispVal] -> LispVal
-apply env func args
+apply env func args =
+  case M.lookup func listPrimitives of
+    Just (LPrimitive f) -> (f args)
+    Nothing -> inferTypeAndApply func args
+
+inferTypeAndApply :: String -> [LispVal] -> LispVal
+inferTypeAndApply func args
   | isIntList args = lookupSymbol intPrimitives func args
   | isFloatList args = lookupSymbol floatPrimitives func args
-  | otherwise = LString "Type Error"
+  | isBoolList args = lookupSymbol boolPrimitives func args
+  | otherwise = LError "symbol not defined"
+
 
 lookupSymbol :: Environment -> String -> [LispVal] -> LispVal
 lookupSymbol env name args =
   case M.lookup name env of
     Just (LPrimitive v) -> (v args)
-    Just _ -> LString "not a function"
-    Nothing -> (LString "symbol not defined")
+    Just _ -> LError "not a function"
+    Nothing -> (LError "symbol not defined")
 
 
 intPrimitives :: M.Map String LispVal
@@ -140,7 +156,7 @@ intBinaryOp :: (Integer -> Integer -> Integer)->([LispVal]->LispVal)
 intBinaryOp f = (\ args ->
                   case args of
                     (LInteger x):(LInteger y):[] -> LInteger (f x y)
-                    _ -> LString "arity error")
+                    _ -> LError "arity error")
 
 
 floatPrimitives :: Environment
@@ -154,8 +170,50 @@ floatBinaryOp :: (Double -> Double -> Double)->([LispVal]->LispVal)
 floatBinaryOp f = (\ args ->
                     case args of
                       (LFloat x):(LFloat y):[] -> LFloat (f x y)
-                      _ -> LString "arity error")
+                      _ -> LError "arity error")
 
+
+boolPrimitives :: Environment
+boolPrimitives = M.fromList [("and", LPrimitive $ boolBinaryOp (B.&&)),
+                             ("or", LPrimitive $ boolBinaryOp (B.||)),
+                             --("xor", LPrimitive $ boolBinaryOp (B.xor)),
+                             ("not", LPrimitive $ (\args ->
+                                                    case args of
+                                                      (LBool x):[] -> LBool $ B.not x
+                                                      _ -> LError "arity error"))]
+
+
+boolBinaryOp :: (Bool -> Bool -> Bool) -> ([LispVal]->LispVal)
+boolBinaryOp f = (\args ->
+                   case args of
+                     (LBool x):(LBool y):[] -> LBool (f x y)
+                     _ -> LError "arity error")
+
+toLList :: [LispVal] -> LispVal
+toLList = foldr (\ l acc -> LList [LSymbol "cons", l, acc]) (LList [])
+
+
+
+cons :: [LispVal] -> LispVal
+cons args =
+  case args of
+    x:y:[] ->   LList [LSymbol "cons",x,y]
+    _ -> LError "arity error"
+
+first :: [LispVal] -> LispVal
+first ((LList [LSymbol "cons",f,r]):[]) = f
+first  _ = LError "illegal arguments"
+
+rest :: [LispVal] -> LispVal
+rest ((LList [LSymbol "cons",f,r]):[]) = r
+rest  _ = LError "illegal arguments"
+
+listPrimitives :: Environment
+listPrimitives = M.fromList [("list", LPrimitive (toLList)),
+                             ("cons", LPrimitive (cons)),
+                             ("first", LPrimitive (first)),
+                             ("rest", LPrimitive (rest))
+                            ]
 
 
 isInt :: LispVal ->Bool
@@ -173,6 +231,10 @@ isFloat _ = False
 
 isFloatList = foldl (\acc x -> and [acc, (isFloat x)]) True
 
+isBoolList = foldl (\acc x -> and [acc, (isBool x)]) True
+  where
+    isBool (LBool _) = True
+    isBool _ = False
 
 repl :: String -> String
-repl =  readExpr |> (eval  M.empty)|> show
+repl =  readExpr |> (eval  M.empty)|> snd |> show
