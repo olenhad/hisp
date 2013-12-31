@@ -6,6 +6,7 @@ import Utils
 import Data.Maybe
 import qualified Data.Bool as B
 import qualified Data.Map as M
+import System.IO
 
 data LispVal = LSymbol String
              | LList [LispVal]
@@ -117,9 +118,9 @@ eval e v@(LFloat _) = (e,v)
 eval e v@(LError _) = (e,v)
 eval e (LList [LSymbol "quote", v]) = (e,v)
 eval e v@(LList []) = (e,v)
---eval env (LList [LSymbol "def"])
+eval env (LList [LSymbol "def", LSymbol name, v]) = ((M.insert name (snd (eval env v)) env), LSymbol name)
 eval env (LList (LSymbol func : args)) = (env, apply env func $ map (snd . (eval env)) args)
-
+eval env (LSymbol name) = (env, lookupSymbol env name [])
 
 apply :: Environment -> String -> [LispVal] -> LispVal
 apply env func args =
@@ -139,7 +140,7 @@ lookupSymbol :: Environment -> String -> [LispVal] -> LispVal
 lookupSymbol env name args =
   case M.lookup name env of
     Just (LPrimitive v) -> (v args)
-    Just _ -> LError "not a function"
+    Just e -> e
     Nothing -> (LError "symbol not defined")
 
 
@@ -236,5 +237,29 @@ isBoolList = foldl (\acc x -> and [acc, (isBool x)]) True
     isBool (LBool _) = True
     isBool _ = False
 
-repl :: String -> String
-repl =  readExpr |> (eval  M.empty)|> snd |> show
+readAndEval :: Environment -> String -> EnvVal
+readAndEval env input = eval env $ readExpr input
+
+printEval :: EnvVal -> IO ()
+printEval p = putStrLn (show (snd p))
+
+flushStr :: String -> IO ()
+flushStr str = putStr str >> hFlush stdout
+
+
+readPrompt :: String -> IO String
+readPrompt prompt = flushStr prompt >> getLine
+
+repl :: Environment -> IO ()
+repl env = (readPrompt "Hisp>>> ") >>=
+           (\ inp ->
+             if inp == "quit" then
+               return ()
+             else
+               let pair = readAndEval env inp
+               in
+                printEval pair >>=
+                (\_ -> repl (fst pair)))
+
+
+main = repl M.empty
