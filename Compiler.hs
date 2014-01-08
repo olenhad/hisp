@@ -1,4 +1,3 @@
-module Parser () where
 import Text.ParserCombinators.Parsec hiding (spaces)
 import System.Environment
 import Control.Monad
@@ -291,6 +290,5 @@ repl env = (readPrompt "Hisp>>> ") >>=
                in
                 printEval pair >>=
                 (\_ -> repl (fst pair)))
-
 
 main = repl M.empty
