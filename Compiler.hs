@@ -15,6 +15,7 @@ data LispVal = LSymbol String
              | LString String
              | LBool Bool
              | LPrimitive ([LispVal]->LispVal)
+             | LLambda String Environment [LispVal] LispVal
              | LError String
 
 
@@ -102,13 +103,14 @@ showVal (LBool True) = "true"
 showVal (LBool False) = "false"
 showVal (LList c) = "(" ++ unwordsList c ++ ")"
 showVal (LError e) = "Error : " ++ e
-
+showVal l@(LLambda name e args body) = "<lambda : " ++ name ++ "-> env: " ++ show e ++ " body:" ++ show body ++ ">"
 unwordsList :: [LispVal] -> String
 unwordsList = unwords . map showVal
 
 instance Show LispVal where show = showVal
 
 type EnvVal = (Environment, LispVal)
+
 
 eval :: Environment -> LispVal -> EnvVal
 eval e v@(LString _) = (e,v)
@@ -118,14 +120,43 @@ eval e v@(LFloat _) = (e,v)
 eval e v@(LError _) = (e,v)
 eval e (LList [LSymbol "quote", v]) = (e,v)
 eval e v@(LList []) = (e,v)
+
+eval e (LSymbol "!debug!") = (e, LString $ show e)
+
+eval e (LList [LSymbol "def", LSymbol name, LList [LSymbol "fn", LList bindings, body@(LList _)]]) =
+  let     newLambda = LLambda name e bindings body
+          newEnv = M.insert name newLambda e
+  in
+  (newEnv, newLambda)
+
+
+
 eval env (LList [LSymbol "def", LSymbol name, v]) = ((M.insert name (snd (eval env v)) env), LSymbol name)
+
+
+eval e (LList [LSymbol "fn", LList bindings, body@(LList _)]) = (e, LLambda "" e bindings body)
+
+eval e v@(LLambda _ _ _ _) = (e,v)
+
+eval e (LList ( l@(LLambda name lenv bindings body) : args)) = applyLambda l $ map (snd . (eval lenv)) args
+
 eval env (LList (LSymbol func : args)) = (env, apply env func $ map (snd . (eval env)) args)
+
 eval env (LSymbol name) = (env, lookupSymbol env name [])
+
+
+--eval e (LList (LSymbol "fn": others)
+
+applyLambda :: LispVal -> [LispVal] -> EnvVal
+applyLambda (LLambda name lenv bindings body) args
+  | length args == length bindings = eval (M.union lenv (M.fromList (zip (map show bindings) args))) body
+  | otherwise = (lenv, LError "arity error")
 
 apply :: Environment -> String -> [LispVal] -> LispVal
 apply env func args =
-  case M.lookup func listPrimitives of
+  case M.lookup func $ M.union listPrimitives env of
     Just (LPrimitive f) -> (f args)
+    Just l@(LLambda _ _ _ _) -> snd $ applyLambda l args
     Nothing -> inferTypeAndApply func args
 
 inferTypeAndApply :: String -> [LispVal] -> LispVal
@@ -141,7 +172,7 @@ lookupSymbol env name args =
   case M.lookup name env of
     Just (LPrimitive v) -> (v args)
     Just e -> e
-    Nothing -> (LError "symbol not defined")
+    Nothing -> (LError $ "symbol '" ++ name ++ "' not defined")
 
 
 intPrimitives :: M.Map String LispVal
