@@ -49,8 +49,6 @@ parseSymbol = do first <- letter <|> specialChar
 --parseInteger :: Parser LispVal
 
 parseInteger :: Parser LispVal
---parseInteger = liftM (Integer . read) $ many1 digit
-
 parseInteger = do lookAhead $ many1 digit >> notFollowedBy (oneOf ".")
                   ds <- many1 digit
                   return $ (LInteger . read) ds
@@ -92,6 +90,8 @@ readExpr input = case parse parseExpr "lisp" input of
   Left err -> LString $ show err
   Right val -> val
 
+unwordsList :: [LispVal] -> String
+unwordsList = unwords . map showVal
 
 showVal :: LispVal -> String
 showVal (LString c) = "\"" ++ c ++ "\""
@@ -103,13 +103,10 @@ showVal (LBool False) = "false"
 showVal (LList c) = "(" ++ unwordsList c ++ ")"
 showVal (LError e) = "Error : " ++ e
 showVal l@(LLambda name e args body) = "<lambda : " ++ name ++ "-> env: " ++ show e ++ " body:" ++ show body ++ ">"
-unwordsList :: [LispVal] -> String
-unwordsList = unwords . map showVal
 
 instance Show LispVal where show = showVal
 
 type EnvVal = (Environment, LispVal)
-
 
 eval :: Environment -> LispVal -> EnvVal
 eval e v@(LString _) = (e,v)
@@ -134,6 +131,15 @@ eval env (LList [LSymbol "def", LSymbol name, v]) = ((M.insert name (snd (eval e
 
 
 eval e (LList [LSymbol "fn", LList bindings, body@(LList _)]) = (e, LLambda "" e bindings body)
+
+
+eval e (LList [LSymbol "if", cond, e1, e2]) =
+     let evalCond = (eval e cond)
+     in
+     case snd evalCond of
+         LBool True -> eval (fst evalCond) e1
+         LBool False -> eval (fst evalCond) e2
+
 
 eval e v@(LLambda _ _ _ _) = (e,v)
 
@@ -180,7 +186,8 @@ intPrimitives = M.fromList [("+", LPrimitive $ intBinaryOp (+)),
                             ("*", LPrimitive $ intBinaryOp (*)),
                             ("/", LPrimitive $ intBinaryOp (quot)),
                             ("mod", LPrimitive $ intBinaryOp (rem)),
-                            ("pow", LPrimitive $ intBinaryOp (^))]
+                            ("pow", LPrimitive $ intBinaryOp (^)),
+                            ]
 
 
 intBinaryOp :: (Integer -> Integer -> Integer)->([LispVal]->LispVal)
@@ -245,7 +252,6 @@ listPrimitives = M.fromList [("list", LPrimitive (toLList)),
                              ("first", LPrimitive (first)),
                              ("rest", LPrimitive (rest))
                             ]
-
 
 isInt :: LispVal ->Bool
 isInt (LInteger _) = True
