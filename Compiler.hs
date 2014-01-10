@@ -268,8 +268,6 @@ boolBinaryOp f = (\args ->
 toLList :: [LispVal] -> LispVal
 toLList = foldr (\ l acc -> LList [LSymbol "cons", l, acc]) (LList [])
 
-
-
 cons :: [LispVal] -> LispVal
 cons args =
   case args of
