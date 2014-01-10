@@ -40,6 +40,8 @@ instance Eq LispVal where
 
 
 
+
+
 type Environment = M.Map String LispVal
 
 
@@ -160,7 +162,7 @@ eval e (LList [LSymbol "if", cond, e1, e2]) =
      case snd evalCond of
          LBool True -> eval (fst evalCond) e1
          LBool False -> eval (fst evalCond) e2
-
+         _ -> (e, LError "type error")
 
 eval e (LList [LSymbol "=", e1, e2]) =
      let evalE1 = snd $ eval e e1
