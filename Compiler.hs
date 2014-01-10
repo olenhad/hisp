@@ -123,7 +123,7 @@ showVal (LBool True) = "true"
 showVal (LBool False) = "false"
 showVal (LList c) = "(" ++ unwordsList c ++ ")"
 showVal (LError e) = "Error : " ++ e
-showVal l@(LLambda name e args body) = "<lambda : " ++ name ++ "-> env: " ++ show e ++ " body:" ++ show body ++ ">"
+showVal l@(LLambda name e args body) = "<lambda : " ++ name ++ "-> body:" ++ show body ++ ">"
 
 instance Show LispVal where show = showVal
 
@@ -140,7 +140,7 @@ eval e v@(LList []) = (e,v)
 
 eval e (LSymbol "!debug!") = (e, LString $ show e)
 
-eval e (LList [LSymbol "def", LSymbol name, LList [LSymbol "fn", LList bindings, body@(LList _)]]) =
+eval e (LList [LSymbol "def", LSymbol name, LList [LSymbol "fn", LList bindings, body]]) =
   let     newLambda = LLambda name e bindings body
           newEnv = M.insert name newLambda e
   in
@@ -151,7 +151,7 @@ eval e (LList [LSymbol "def", LSymbol name, LList [LSymbol "fn", LList bindings,
 eval env (LList [LSymbol "def", LSymbol name, v]) = ((M.insert name (snd (eval env v)) env), LSymbol name)
 
 
-eval e (LList [LSymbol "fn", LList bindings, body@(LList _)]) = (e, LLambda "" e bindings body)
+eval e (LList [LSymbol "fn", LList bindings, body]) = (e, LLambda "" e bindings body)
 
 
 eval e (LList [LSymbol "if", cond, e1, e2]) =
@@ -160,6 +160,7 @@ eval e (LList [LSymbol "if", cond, e1, e2]) =
      case snd evalCond of
          LBool True -> eval (fst evalCond) e1
          LBool False -> eval (fst evalCond) e2
+
 
 eval e (LList [LSymbol "=", e1, e2]) =
      let evalE1 = snd $ eval e e1
@@ -170,7 +171,13 @@ eval e (LList [LSymbol "=", e1, e2]) =
 
 eval e v@(LLambda _ _ _ _) = (e,v)
 
-eval e (LList ( l@(LLambda name lenv bindings body) : args)) = applyLambda l $ map (snd . (eval lenv)) args
+eval e (LList ( l@(LLambda name lenv bindings body) : args)) =
+     applyLambda l $ map (snd . (eval lenv)) args
+
+eval e (LList ((LList [LSymbol "fn", LList bindings, body]):args)) =
+     let lambda = LLambda "" e bindings body
+     in
+        applyLambda lambda args
 
 eval env (LList (LSymbol func : args)) = (env, apply env func $ map (snd . (eval env)) args)
 
