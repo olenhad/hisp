@@ -14,8 +14,29 @@ data LispVal = LSymbol String
              | LString String
              | LBool Bool
              | LPrimitive ([LispVal]->LispVal)
-             | LLambda String Environment [LispVal] LispVal
+             | LLambda {name :: String,
+                        env :: Environment,
+                        bindings :: [LispVal],
+                        body :: LispVal}
              | LError String
+
+instance Eq LispVal where
+         (LPrimitive _) == _ = False
+         (LLambda _ _ _ _) == _ = False
+         (LError _) == _ = False
+
+         (LInteger i1) == (LInteger i2) = (i1 == i2)
+         (LInteger i1) == _ = False
+
+         (LFloat f1) == (LFloat f2) = (f1 == f2)
+         (LFloat f1) == _ = False
+
+         (LString s1) == (LString s2) = (s1 == s2)
+         (LString s1) == _ = False
+
+         (LBool b1) == (LBool b2) = (b1 == b2)
+         (LBool b1) == _ = False
+
 
 
 
@@ -140,6 +161,12 @@ eval e (LList [LSymbol "if", cond, e1, e2]) =
          LBool True -> eval (fst evalCond) e1
          LBool False -> eval (fst evalCond) e2
 
+eval e (LList [LSymbol "=", e1, e2]) =
+     let evalE1 = snd $ eval e e1
+         evalE2 = snd $ eval e e2
+     in
+        (e,LBool (evalE1 == evalE2))
+
 
 eval e v@(LLambda _ _ _ _) = (e,v)
 
@@ -153,8 +180,11 @@ eval env (LSymbol name) = (env, lookupSymbol env name [])
 --eval e (LList (LSymbol "fn": others)
 
 applyLambda :: LispVal -> [LispVal] -> EnvVal
-applyLambda (LLambda name lenv bindings body) args
-  | length args == length bindings = eval (M.union lenv (M.fromList (zip (map show bindings) args))) body
+applyLambda l@(LLambda name lenv bindings body) args
+  | length args == length bindings =
+           let closure = M.union (M.fromList [(name, l)]) (M.union lenv (M.fromList (zip (map show bindings) args)))
+           in
+             eval closure body
   | otherwise = (lenv, LError "arity error")
 
 apply :: Environment -> String -> [LispVal] -> LispVal
@@ -186,8 +216,7 @@ intPrimitives = M.fromList [("+", LPrimitive $ intBinaryOp (+)),
                             ("*", LPrimitive $ intBinaryOp (*)),
                             ("/", LPrimitive $ intBinaryOp (quot)),
                             ("mod", LPrimitive $ intBinaryOp (rem)),
-                            ("pow", LPrimitive $ intBinaryOp (^)),
-                            ]
+                            ("pow", LPrimitive $ intBinaryOp (^))]
 
 
 intBinaryOp :: (Integer -> Integer -> Integer)->([LispVal]->LispVal)
